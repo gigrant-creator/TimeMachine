@@ -2,6 +2,7 @@ import streamlit as st
 from huggingface_hub import InferenceClient
 from PIL import Image
 import io
+import traceback # <--- The X-Ray Tool
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Chronos: Time Machine", page_icon="⌛", layout="centered")
@@ -31,7 +32,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("CHRONOS V13")
+st.title("CHRONOS V14 (X-RAY)")
 st.markdown("<h3 style='text-align: center;'>Temporal Displacement Unit</h3>", unsafe_allow_html=True)
 
 # --- 3. AUTH ---
@@ -42,7 +43,7 @@ else:
 
 # --- 4. MAIN LOGIC ---
 if api_key:
-    # We initialize the client WITHOUT a model first to avoid "Multiple Values" bug
+    # We use the generic client (no model specified yet)
     client = InferenceClient(token=api_key)
 
     st.write("### 1. ACQUIRE BIOMETRIC DATA")
@@ -55,9 +56,8 @@ if api_key:
         image_input = st.file_uploader("Upload Image Data", type=["jpg", "png", "jpeg"])
 
     if image_input:
-        # Load and Resize (CRITICAL)
         original_image = Image.open(image_input)
-        original_image = original_image.resize((512, 512)) 
+        original_image = original_image.resize((512, 512)) # Resize to prevent timeout
         
         st.image(original_image, caption="SUBJECT: PRESENT DAY (512x512)", width=300)
 
@@ -73,14 +73,13 @@ if api_key:
         }
 
         if st.button("INITIATE TIME WARP"):
-            with st.spinner("⚡ CONTACTING AI..."):
+            with st.spinner("⚡ WARPING TIME..."):
                 try:
-                    # Using the standard library method
-                    # This relies on the library to find the right URL
+                    # Explicitly using the image_to_image function
                     edited_image = client.image_to_image(
                         image=original_image,
                         prompt=prompts[years],
-                        model="runwayml/stable-diffusion-v1-5", 
+                        model="runwayml/stable-diffusion-v1-5",
                         strength=0.5,
                         guidance_scale=7.5
                     )
@@ -88,13 +87,12 @@ if api_key:
                     st.success("✔ TEMPORAL JUMP COMPLETE")
                     st.image(edited_image, caption=f"SUBJECT: +{years}")
 
-                except Exception as e:
-                    st.error("⚠️ SYSTEM ERROR")
-                    st.write(f"Error Details: {e}")
-                    
-                    error_text = str(e).lower()
-                    if "loading" in error_text or "503" in error_text:
-                         st.info("💡 The AI is waking up. Please wait 30 seconds and click again.")
+                except Exception:
+                    # --- X-RAY VISION ---
+                    st.error("⚠️ SYSTEM CRASH DETECTED")
+                    st.write("Here is the exact technical error:")
+                    # This prints the FULL ugly error message so we know exactly what is wrong
+                    st.code(traceback.format_exc())
 
 else:
     st.warning("⚠️ ACCESS DENIED. PLEASE ENTER TOKEN.")
