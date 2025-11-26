@@ -1,7 +1,8 @@
 import streamlit as st
-from huggingface_hub import InferenceClient
-from PIL import Image
+import requests
+import base64
 import io
+from PIL import Image
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Chronos: Time Machine", page_icon="⌛", layout="centered")
@@ -31,7 +32,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("CHRONOS V9.0")
+st.title("CHRONOS V10 (DEBUGGER)")
 st.markdown("<h3 style='text-align: center;'>Temporal Displacement Unit</h3>", unsafe_allow_html=True)
 
 # --- 3. AUTH ---
@@ -40,11 +41,14 @@ if "HF_TOKEN" in st.secrets:
 else:
     api_key = st.sidebar.text_input("ENTER ACCESS TOKEN", type="password")
 
-# --- 4. MAIN LOGIC ---
-if api_key:
-    # Using the robust Stable Diffusion 1.5 model
-    client = InferenceClient(model="runwayml/stable-diffusion-v1-5", token=api_key)
+# --- 4. HELPER FUNCTIONS ---
+def image_to_base64(image):
+    buffered = io.BytesIO()
+    image.save(buffered, format="JPEG")
+    return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
+# --- 5. MAIN LOGIC ---
+if api_key:
     st.write("### 1. ACQUIRE BIOMETRIC DATA")
     input_method = st.radio("Select Input Source:", ["Activate Camera", "Upload File"])
 
@@ -55,14 +59,11 @@ if api_key:
         image_input = st.file_uploader("Upload Image Data", type=["jpg", "png", "jpeg"])
 
     if image_input:
-        # Load the image
+        # Load and Resize (CRITICAL for free tier)
         original_image = Image.open(image_input)
+        original_image = original_image.resize((512, 512)) # Force small size
         
-        # --- THE FIX: RESIZE IMAGE ---
-        # We force the image to be small (512x512) so the free server doesn't crash.
-        original_image = original_image.resize((512, 512))
-        
-        st.image(original_image, caption="SUBJECT: PRESENT DAY (Resized for Transfer)", width=300)
+        st.image(original_image, caption="SUBJECT: PRESENT DAY (512x512)", width=300)
 
         st.write("---")
         st.write("### 2. SET TEMPORAL COORDINATES")
@@ -76,23 +77,46 @@ if api_key:
         }
 
         if st.button("INITIATE TIME WARP"):
-            try:
-                with st.spinner("⚡ WARPING TIME..."):
-                    # Image to Image Generation
-                    edited_image = client.image_to_image(
-                        image=original_image,
-                        prompt=prompts[years],
-                        strength=0.5, # Lower strength = keeps your face more recognizable
-                        guidance_scale=7.5
-                    )
+            with st.spinner("⚡ CONTACTING SERVER..."):
+                try:
+                    # MANUAL API CALL (No Client Library)
+                    API_URL = "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"
+                    headers = {"Authorization": f"Bearer {api_key}"}
                     
-                    st.success("✔ TEMPORAL JUMP COMPLETE")
-                    st.image(edited_image, caption=f"SUBJECT: +{years}")
-            
-            except Exception as e:
-                st.error("⚠️ SYSTEM ERROR")
-                # This prints the REAL error if it happens again
-                st.write(f"Error Details: {e}") 
+                    # This specific model expects inputs + image in a specific way
+                    # But for img2img on the API, we can sometimes just use text-to-image with init_image
+                    # Let's try the standard payload
+                    payload = {
+                        "inputs": prompts[years],
+                        "parameters": {
+                            "image": image_to_base64(original_image), # Sending image as base64 parameter
+                            "strength": 0.5,
+                            "guidance_scale": 7.5
+                        }
+                    }
+                    
+                    response = requests.post(API_URL, headers=headers, json=payload)
+                    
+                    # --- THE DEBUGGING BLOCK ---
+                    if response.status_code == 200:
+                        # Success!
+                        edited_image = Image.open(io.BytesIO(response.content))
+                        st.success("✔ TEMPORAL JUMP COMPLETE")
+                        st.image(edited_image, caption=f"SUBJECT: +{years}")
+                    else:
+                        # FAILURE - PRINT EVERYTHING
+                        st.error(f"⚠️ SERVER ERROR: {response.status_code}")
+                        st.write("Raw Server Message:")
+                        st.code(response.text) # This will show us the REAL error
+                        
+                        if "loading" in response.text.lower():
+                            st.info("💡 Solution: The model is loading. Click the button again in 30 seconds.")
+                        elif "too large" in response.text.lower():
+                            st.info("💡 Solution: The image is too big. We resized it, but try a smaller file.")
+
+                except Exception as e:
+                    st.error("⚠️ SYSTEM CRASH")
+                    st.write(f"Python Error: {e}")
 
 else:
     st.warning("⚠️ ACCESS DENIED. PLEASE ENTER TOKEN.")
