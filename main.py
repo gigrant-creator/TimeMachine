@@ -32,7 +32,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("CHRONOS V10 (DEBUGGER)")
+st.title("CHRONOS V11 (ROUTER)")
 st.markdown("<h3 style='text-align: center;'>Temporal Displacement Unit</h3>", unsafe_allow_html=True)
 
 # --- 3. AUTH ---
@@ -77,19 +77,18 @@ if api_key:
         }
 
         if st.button("INITIATE TIME WARP"):
-            with st.spinner("⚡ CONTACTING SERVER..."):
+            with st.spinner("⚡ CONTACTING ROUTER..."):
                 try:
-                    # MANUAL API CALL (No Client Library)
-                    API_URL = "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5"
+                    # --- THE FIX: NEW ROUTER URL ---
+                    # We updated this line to use the new 'router' domain
+                    API_URL = "https://router.huggingface.co/hf-inference/models/runwayml/stable-diffusion-v1-5"
+                    
                     headers = {"Authorization": f"Bearer {api_key}"}
                     
-                    # This specific model expects inputs + image in a specific way
-                    # But for img2img on the API, we can sometimes just use text-to-image with init_image
-                    # Let's try the standard payload
                     payload = {
                         "inputs": prompts[years],
                         "parameters": {
-                            "image": image_to_base64(original_image), # Sending image as base64 parameter
+                            "image": image_to_base64(original_image), 
                             "strength": 0.5,
                             "guidance_scale": 7.5
                         }
@@ -97,22 +96,18 @@ if api_key:
                     
                     response = requests.post(API_URL, headers=headers, json=payload)
                     
-                    # --- THE DEBUGGING BLOCK ---
                     if response.status_code == 200:
                         # Success!
                         edited_image = Image.open(io.BytesIO(response.content))
                         st.success("✔ TEMPORAL JUMP COMPLETE")
                         st.image(edited_image, caption=f"SUBJECT: +{years}")
                     else:
-                        # FAILURE - PRINT EVERYTHING
                         st.error(f"⚠️ SERVER ERROR: {response.status_code}")
                         st.write("Raw Server Message:")
-                        st.code(response.text) # This will show us the REAL error
+                        st.code(response.text)
                         
                         if "loading" in response.text.lower():
                             st.info("💡 Solution: The model is loading. Click the button again in 30 seconds.")
-                        elif "too large" in response.text.lower():
-                            st.info("💡 Solution: The image is too big. We resized it, but try a smaller file.")
 
                 except Exception as e:
                     st.error("⚠️ SYSTEM CRASH")
