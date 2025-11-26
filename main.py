@@ -1,12 +1,13 @@
 import streamlit as st
 from huggingface_hub import InferenceClient
 from PIL import Image
+import io
 import time
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="Chronos: Time Machine", page_icon="⌛", layout="centered")
 
-# --- 2. CSS STYLING (Sci-Fi Look) ---
+# --- 2. CSS STYLING ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
@@ -31,12 +32,11 @@ st.markdown("""
         text-shadow: 0 0 10px #00e5ff;
         text-align: center;
     }
-    h3, p, label, .stRadio label {
+    h3, p, label {
         color: #ffffff !important;
         font-family: 'Courier New', monospace;
     }
 
-    /* Button Styling */
     .stButton>button {
         background-color: #00e5ff;
         color: black;
@@ -54,11 +54,11 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. APP HEADER ---
-st.title("CHRONOS V2.0")
+# --- 3. HEADER ---
+st.title("CHRONOS V3.0")
 st.markdown("<h3 style='text-align: center;'>Temporal Displacement Unit</h3>", unsafe_allow_html=True)
 
-# --- 4. AUTHENTICATION ---
+# --- 4. AUTH ---
 if "HF_TOKEN" in st.secrets:
     api_key = st.secrets["HF_TOKEN"]
 else:
@@ -66,8 +66,8 @@ else:
 
 # --- 5. MAIN LOGIC ---
 if api_key:
-    # Initialize Client WITH the model name to prevent confusion
-    client = InferenceClient(model="timbrooks/instruct-pix2pix", token=api_key)
+    # FIX #1: Initialize Client WITHOUT a model to prevent conflicts
+    client = InferenceClient(token=api_key)
 
     st.write("### 1. ACQUIRE BIOMETRIC DATA")
     input_method = st.radio("Select Input Source:", ["Activate Camera", "Upload File"])
@@ -98,40 +98,38 @@ if api_key:
         }
 
         if st.button("INITIATE TIME WARP"):
-            status_box = st.empty() # Create a placeholder for status updates
+            status_box = st.empty()
             
-            try:
-                # --- THE RETRY LOOP ---
-                # This tries 3 times if the server says "I'm busy"
-                for attempt in range(3):
-                    try:
-                        status_box.info(f"⚡ Attempt {attempt+1}/3: Establishing Neural Link...")
-                        
-                        # The Correct Call
-                        edited_image = client.image_to_image(
-                            image=original_image,
-                            prompt=prompts[years],
-                            image_guidance_scale=1.5,
-                            guidance_scale=8.5
-                        )
-                        
-                        # If successful:
-                        status_box.success("✔ TEMPORAL JUMP COMPLETE")
-                        st.image(edited_image, caption=f"SUBJECT: +{years}")
-                        break # Exit the loop!
-                        
-                    except Exception as inner_e:
-                        # Check if it's a "Loading" error (503)
-                        error_msg = str(inner_e)
-                        if "503" in error_msg or "loading" in error_msg.lower():
-                            status_box.warning(f"⚠ Server Waking Up... Waiting 10 seconds...")
-                            time.sleep(10) # Wait for server to load
-                        else:
-                            raise inner_e # If it's a real error, crash.
-
-            except Exception as e:
-                st.error("⚠️ SYSTEM FAILURE")
-                st.code(f"Error Details: {e}") # This prints the REAL error code
+            # FIX #2: The Retry Loop for "Cold" models
+            for attempt in range(3):
+                try:
+                    status_box.info(f"⚡ Attempt {attempt+1}/3: Establishing Neural Link...")
+                    
+                    # FIX #3: Pass image as the FIRST argument (positional)
+                    # We also explicitly pass the model name HERE.
+                    edited_image = client.image_to_image(
+                        original_image,
+                        model="timbrooks/instruct-pix2pix", 
+                        prompt=prompts[years], 
+                        guidance_scale=8.5,
+                        image_guidance_scale=1.5
+                    )
+                    
+                    status_box.success("✔ TEMPORAL JUMP COMPLETE")
+                    st.image(edited_image, caption=f"SUBJECT: +{years}")
+                    break
+                    
+                except Exception as e:
+                    # FIX #4: Better Error Logging
+                    error_text = str(e)
+                    if "503" in error_text or "loading" in error_text.lower():
+                        status_box.warning(f"⚠ Server Warming Up... ({3-attempt} tries left)")
+                        time.sleep(5)
+                    else:
+                        st.error("⚠️ CRITICAL FAILURE")
+                        # This prints the RAW error object so we can see hidden details
+                        st.write(f"Debug Info: {repr(e)}")
+                        break
 
 else:
     st.warning("⚠️ ACCESS DENIED. PLEASE ENTER TOKEN.")
