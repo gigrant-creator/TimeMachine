@@ -31,7 +31,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("CHRONOS V8.0")
+st.title("CHRONOS V9.0")
 st.markdown("<h3 style='text-align: center;'>Temporal Displacement Unit</h3>", unsafe_allow_html=True)
 
 # --- 3. AUTH ---
@@ -42,8 +42,7 @@ else:
 
 # --- 4. MAIN LOGIC ---
 if api_key:
-    # We switch to the "runwayml/stable-diffusion-v1-5" model.
-    # It is much more stable on the free tier than Pix2Pix.
+    # Using the robust Stable Diffusion 1.5 model
     client = InferenceClient(model="runwayml/stable-diffusion-v1-5", token=api_key)
 
     st.write("### 1. ACQUIRE BIOMETRIC DATA")
@@ -56,29 +55,34 @@ if api_key:
         image_input = st.file_uploader("Upload Image Data", type=["jpg", "png", "jpeg"])
 
     if image_input:
+        # Load the image
         original_image = Image.open(image_input)
-        st.image(original_image, caption="SUBJECT: PRESENT DAY", width=300)
+        
+        # --- THE FIX: RESIZE IMAGE ---
+        # We force the image to be small (512x512) so the free server doesn't crash.
+        original_image = original_image.resize((512, 512))
+        
+        st.image(original_image, caption="SUBJECT: PRESENT DAY (Resized for Transfer)", width=300)
 
         st.write("---")
         st.write("### 2. SET TEMPORAL COORDINATES")
         years = st.select_slider("Warp Forward By:", options=["10 Years", "30 Years", "50 Years", "80 Years"])
 
-        # Prompts optimized for Stable Diffusion
         prompts = {
-            "10 Years": "a photo of the person, slightly older, 10 years later, realistic, 8k",
-            "30 Years": "a photo of the person, middle aged, 50 years old, grey hair, wrinkles, realistic",
-            "50 Years": "a photo of the person, 70 years old, grandmother grandfather, white hair, elderly, detailed",
-            "80 Years": "a photo of the person, 100 years old, ancient, deep wrinkles, very old, detailed portrait"
+            "10 Years": "photo of a person, slightly older, 10 years later, realistic, 8k",
+            "30 Years": "photo of a person, middle aged, 50 years old, grey hair, wrinkles, realistic",
+            "50 Years": "photo of a person, 70 years old, grandmother grandfather, white hair, elderly, detailed",
+            "80 Years": "photo of a person, 100 years old, ancient, deep wrinkles, very old, detailed portrait"
         }
 
         if st.button("INITIATE TIME WARP"):
             try:
-                with st.spinner("⚡ WARPING TIME... (This takes ~10 seconds)"):
-                    # The image_to_image call for Stable Diffusion
+                with st.spinner("⚡ WARPING TIME..."):
+                    # Image to Image Generation
                     edited_image = client.image_to_image(
                         image=original_image,
                         prompt=prompts[years],
-                        strength=0.6, # 0.6 means "Change 60% of the pixels"
+                        strength=0.5, # Lower strength = keeps your face more recognizable
                         guidance_scale=7.5
                     )
                     
@@ -87,8 +91,8 @@ if api_key:
             
             except Exception as e:
                 st.error("⚠️ SYSTEM ERROR")
-                st.write(f"Error Details: {e}")
-                st.info("If this fails, the free servers might be overloaded. Try again in 1 minute.")
+                # This prints the REAL error if it happens again
+                st.write(f"Error Details: {e}") 
 
 else:
     st.warning("⚠️ ACCESS DENIED. PLEASE ENTER TOKEN.")
