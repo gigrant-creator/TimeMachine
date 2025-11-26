@@ -1,74 +1,66 @@
 import streamlit as st
-from huggingface_hub import InferenceClient
+import requests
 from PIL import Image
 import io
+import base64
 import time
 
-# --- 1. PAGE CONFIGURATION ---
+# --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Chronos: Time Machine", page_icon="⌛", layout="centered")
 
 # --- 2. CSS STYLING ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
-    
     .stApp {
         background-image: url("https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop");
         background-size: cover;
-        background-repeat: no-repeat;
         background-attachment: fixed;
     }
-    
     .stBlock, div[data-testid="stVerticalBlock"] {
         background-color: rgba(0, 0, 0, 0.8);
         border-radius: 15px;
         padding: 20px;
         border: 1px solid #00e5ff;
     }
-
-    h1 {
-        font-family: 'Orbitron', sans-serif;
-        color: #00e5ff;
-        text-shadow: 0 0 10px #00e5ff;
-        text-align: center;
-    }
-    h3, p, label {
-        color: #ffffff !important;
-        font-family: 'Courier New', monospace;
-    }
-
+    h1 { font-family: 'Orbitron', sans-serif; color: #00e5ff; text-align: center; }
+    h3, p, label { color: #ffffff !important; font-family: 'Courier New', monospace; }
     .stButton>button {
-        background-color: #00e5ff;
-        color: black;
-        font-family: 'Orbitron', sans-serif;
-        font-weight: bold;
-        border: none;
-        border-radius: 5px;
-        width: 100%;
-        transition: 0.3s;
+        background-color: #00e5ff; color: black; font-family: 'Orbitron', sans-serif;
+        border: none; width: 100%; transition: 0.3s;
     }
-    .stButton>button:hover {
-        background-color: #ffffff;
-        box-shadow: 0 0 15px #ffffff;
-    }
+    .stButton>button:hover { background-color: #ffffff; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. HEADER ---
-st.title("CHRONOS V3.0")
+st.title("CHRONOS V4.0 (MANUAL)")
 st.markdown("<h3 style='text-align: center;'>Temporal Displacement Unit</h3>", unsafe_allow_html=True)
 
-# --- 4. AUTH ---
+# --- 3. AUTH ---
 if "HF_TOKEN" in st.secrets:
     api_key = st.secrets["HF_TOKEN"]
 else:
     api_key = st.sidebar.text_input("ENTER ACCESS TOKEN", type="password")
 
+# --- 4. HELPER FUNCTIONS ---
+def image_to_base64(image):
+    # Convert PIL Image to Base64 string so we can send it in JSON
+    buffered = io.BytesIO()
+    image.save(buffered, format="JPEG")
+    return base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+def query_huggingface_manual(payload, api_key):
+    # Raw request to the API
+    API_URL = "https://api-inference.huggingface.co/models/timbrooks/instruct-pix2pix"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "X-Wait-For-Model": "true" # Tells the server to wake up if asleep
+    }
+    response = requests.post(API_URL, headers=headers, json=payload)
+    return response
+
 # --- 5. MAIN LOGIC ---
 if api_key:
-    # FIX #1: Initialize Client WITHOUT a model to prevent conflicts
-    client = InferenceClient(token=api_key)
-
     st.write("### 1. ACQUIRE BIOMETRIC DATA")
     input_method = st.radio("Select Input Source:", ["Activate Camera", "Upload File"])
 
@@ -79,16 +71,12 @@ if api_key:
         image_input = st.file_uploader("Upload Image Data", type=["jpg", "png", "jpeg"])
 
     if image_input:
-        st.image(image_input, caption="SUBJECT: PRESENT DAY", width=300)
         original_image = Image.open(image_input)
+        st.image(original_image, caption="SUBJECT: PRESENT DAY", width=300)
 
         st.write("---")
         st.write("### 2. SET TEMPORAL COORDINATES")
-        
-        years = st.select_slider(
-            "Warp Forward By:",
-            options=["10 Years", "30 Years", "50 Years", "80 Years"]
-        )
+        years = st.select_slider("Warp Forward By:", options=["10 Years", "30 Years", "50 Years", "80 Years"])
 
         prompts = {
             "10 Years": "make them look 10 years older, slight skin texture",
@@ -100,36 +88,44 @@ if api_key:
         if st.button("INITIATE TIME WARP"):
             status_box = st.empty()
             
-            # FIX #2: The Retry Loop for "Cold" models
+            # Prepare the Payload (The Data Packet)
+            # InstructPix2Pix expects 'inputs' (prompt) and 'image' (base64)
+            # Note: The API format can vary, but this JSON structure is standard for many editing models
+            payload = {
+                "inputs": prompts[years],
+                "image": image_to_base64(original_image),
+                "parameters": {
+                    "guidance_scale": 7.5,
+                    "image_guidance_scale": 1.5,
+                    "num_inference_steps": 20
+                }
+            }
+
             for attempt in range(3):
+                status_box.info(f"⚡ Attempt {attempt+1}/3: Establishing Link...")
+                
                 try:
-                    status_box.info(f"⚡ Attempt {attempt+1}/3: Establishing Neural Link...")
+                    response = query_huggingface_manual(payload, api_key)
                     
-                    # FIX #3: Pass image as the FIRST argument (positional)
-                    # We also explicitly pass the model name HERE.
-                    edited_image = client.image_to_image(
-                        original_image,
-                        model="timbrooks/instruct-pix2pix", 
-                        prompt=prompts[years], 
-                        guidance_scale=8.5,
-                        image_guidance_scale=1.5
-                    )
+                    if response.status_code == 200:
+                        # Success! Convert bytes back to image
+                        edited_image = Image.open(io.BytesIO(response.content))
+                        status_box.success("✔ TEMPORAL JUMP COMPLETE")
+                        st.image(edited_image, caption=f"SUBJECT: +{years}")
+                        break
                     
-                    status_box.success("✔ TEMPORAL JUMP COMPLETE")
-                    st.image(edited_image, caption=f"SUBJECT: +{years}")
-                    break
-                    
-                except Exception as e:
-                    # FIX #4: Better Error Logging
-                    error_text = str(e)
-                    if "503" in error_text or "loading" in error_text.lower():
+                    elif "loading" in response.text.lower() or response.status_code == 503:
                         status_box.warning(f"⚠ Server Warming Up... ({3-attempt} tries left)")
-                        time.sleep(5)
+                        time.sleep(15) # Wait longer for manual mode
+                        
                     else:
                         st.error("⚠️ CRITICAL FAILURE")
-                        # This prints the RAW error object so we can see hidden details
-                        st.write(f"Debug Info: {repr(e)}")
+                        st.write(f"Server Response: {response.text}")
                         break
+
+                except Exception as e:
+                    st.error(f"Connection Error: {e}")
+                    break
 
 else:
     st.warning("⚠️ ACCESS DENIED. PLEASE ENTER TOKEN.")
