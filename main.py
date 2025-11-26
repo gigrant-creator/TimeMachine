@@ -33,7 +33,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("CHRONOS V4.0 (MANUAL)")
+st.title("CHRONOS V5.0")
 st.markdown("<h3 style='text-align: center;'>Temporal Displacement Unit</h3>", unsafe_allow_html=True)
 
 # --- 3. AUTH ---
@@ -44,17 +44,18 @@ else:
 
 # --- 4. HELPER FUNCTIONS ---
 def image_to_base64(image):
-    # Convert PIL Image to Base64 string so we can send it in JSON
     buffered = io.BytesIO()
     image.save(buffered, format="JPEG")
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
 def query_huggingface_manual(payload, api_key):
-    # Raw request to the API
-    API_URL = "https://api-inference.huggingface.co/models/timbrooks/instruct-pix2pix"
+    # --- THE FIX IS HERE ---
+    # We updated the URL from 'api-inference' to 'router' as requested by the server error.
+    API_URL = "https://router.huggingface.co/models/timbrooks/instruct-pix2pix"
+    
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "X-Wait-For-Model": "true" # Tells the server to wake up if asleep
+        "X-Wait-For-Model": "true" 
     }
     response = requests.post(API_URL, headers=headers, json=payload)
     return response
@@ -88,16 +89,13 @@ if api_key:
         if st.button("INITIATE TIME WARP"):
             status_box = st.empty()
             
-            # Prepare the Payload (The Data Packet)
-            # InstructPix2Pix expects 'inputs' (prompt) and 'image' (base64)
-            # Note: The API format can vary, but this JSON structure is standard for many editing models
+            # The Data Packet
             payload = {
                 "inputs": prompts[years],
                 "image": image_to_base64(original_image),
                 "parameters": {
                     "guidance_scale": 7.5,
                     "image_guidance_scale": 1.5,
-                    "num_inference_steps": 20
                 }
             }
 
@@ -108,7 +106,6 @@ if api_key:
                     response = query_huggingface_manual(payload, api_key)
                     
                     if response.status_code == 200:
-                        # Success! Convert bytes back to image
                         edited_image = Image.open(io.BytesIO(response.content))
                         status_box.success("✔ TEMPORAL JUMP COMPLETE")
                         st.image(edited_image, caption=f"SUBJECT: +{years}")
@@ -116,7 +113,7 @@ if api_key:
                     
                     elif "loading" in response.text.lower() or response.status_code == 503:
                         status_box.warning(f"⚠ Server Warming Up... ({3-attempt} tries left)")
-                        time.sleep(15) # Wait longer for manual mode
+                        time.sleep(15) 
                         
                     else:
                         st.error("⚠️ CRITICAL FAILURE")
