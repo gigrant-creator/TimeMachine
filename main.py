@@ -1,9 +1,7 @@
 import streamlit as st
-import requests
+from huggingface_hub import InferenceClient
 from PIL import Image
 import io
-import base64
-import time
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Chronos: Time Machine", page_icon="⌛", layout="centered")
@@ -33,7 +31,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("CHRONOS V6.0")
+st.title("CHRONOS V8.0")
 st.markdown("<h3 style='text-align: center;'>Temporal Displacement Unit</h3>", unsafe_allow_html=True)
 
 # --- 3. AUTH ---
@@ -42,41 +40,12 @@ if "HF_TOKEN" in st.secrets:
 else:
     api_key = st.sidebar.text_input("ENTER ACCESS TOKEN", type="password")
 
-# --- 4. HELPER FUNCTIONS ---
-def image_to_base64(image):
-    buffered = io.BytesIO()
-    image.save(buffered, format="JPEG")
-    return base64.b64encode(buffered.getvalue()).decode('utf-8')
-
-def query_huggingface_manual(payload, api_key):
-    # --- THE MAGIC FIX ---
-    # We try the standard URL first. 
-    # If it fails, we fall back to the new ROUTER URL with the /hf-inference/ path.
-    
-    # URL 1: Standard (Works 90% of the time)
-    API_URL = "https://api-inference.huggingface.co/models/timbrooks/instruct-pix2pix"
-    
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "X-Wait-For-Model": "true"
-    }
-    
-    try:
-        response = requests.post(API_URL, headers=headers, json=payload)
-        
-        # If the server tells us to use the Router, we switch immediately
-        if "router.huggingface.co" in response.text:
-             # URL 2: The New Router (Note the /hf-inference/ part!)
-            ROUTER_URL = "https://router.huggingface.co/hf-inference/models/timbrooks/instruct-pix2pix"
-            response = requests.post(ROUTER_URL, headers=headers, json=payload)
-            
-        return response
-        
-    except Exception as e:
-        return None
-
-# --- 5. MAIN LOGIC ---
+# --- 4. MAIN LOGIC ---
 if api_key:
+    # We switch to the "runwayml/stable-diffusion-v1-5" model.
+    # It is much more stable on the free tier than Pix2Pix.
+    client = InferenceClient(model="runwayml/stable-diffusion-v1-5", token=api_key)
+
     st.write("### 1. ACQUIRE BIOMETRIC DATA")
     input_method = st.radio("Select Input Source:", ["Activate Camera", "Upload File"])
 
@@ -94,55 +63,32 @@ if api_key:
         st.write("### 2. SET TEMPORAL COORDINATES")
         years = st.select_slider("Warp Forward By:", options=["10 Years", "30 Years", "50 Years", "80 Years"])
 
+        # Prompts optimized for Stable Diffusion
         prompts = {
-            "10 Years": "make them look 10 years older, slight skin texture",
-            "30 Years": "make them look 40 years older, grey hair, visible wrinkles",
-            "50 Years": "make them look 70 years old, elderly, white hair, deep wrinkles",
-            "80 Years": "make them look 100 years old, ancient, very old, detailed texture"
+            "10 Years": "a photo of the person, slightly older, 10 years later, realistic, 8k",
+            "30 Years": "a photo of the person, middle aged, 50 years old, grey hair, wrinkles, realistic",
+            "50 Years": "a photo of the person, 70 years old, grandmother grandfather, white hair, elderly, detailed",
+            "80 Years": "a photo of the person, 100 years old, ancient, deep wrinkles, very old, detailed portrait"
         }
 
         if st.button("INITIATE TIME WARP"):
-            status_box = st.empty()
+            try:
+                with st.spinner("⚡ WARPING TIME... (This takes ~10 seconds)"):
+                    # The image_to_image call for Stable Diffusion
+                    edited_image = client.image_to_image(
+                        image=original_image,
+                        prompt=prompts[years],
+                        strength=0.6, # 0.6 means "Change 60% of the pixels"
+                        guidance_scale=7.5
+                    )
+                    
+                    st.success("✔ TEMPORAL JUMP COMPLETE")
+                    st.image(edited_image, caption=f"SUBJECT: +{years}")
             
-            # The Data Packet
-            payload = {
-                "inputs": prompts[years],
-                "image": image_to_base64(original_image),
-                "parameters": {
-                    "guidance_scale": 7.5,
-                    "image_guidance_scale": 1.5,
-                }
-            }
-
-            for attempt in range(3):
-                status_box.info(f"⚡ Attempt {attempt+1}/3: Establishing Link...")
-                
-                try:
-                    response = query_huggingface_manual(payload, api_key)
-                    
-                    if response and response.status_code == 200:
-                        # Success!
-                        edited_image = Image.open(io.BytesIO(response.content))
-                        status_box.success("✔ TEMPORAL JUMP COMPLETE")
-                        st.image(edited_image, caption=f"SUBJECT: +{years}")
-                        break
-                    
-                    elif response and ("loading" in response.text.lower() or response.status_code == 503):
-                        status_box.warning(f"⚠ Server Warming Up... ({3-attempt} tries left)")
-                        time.sleep(15) 
-                        
-                    else:
-                        st.error("⚠️ CRITICAL FAILURE")
-                        # Print the exact error so we can see it
-                        if response:
-                            st.write(f"Server Response: {response.text}")
-                        else:
-                            st.write("Connection failed completely.")
-                        break
-
-                except Exception as e:
-                    st.error(f"Connection Error: {e}")
-                    break
+            except Exception as e:
+                st.error("⚠️ SYSTEM ERROR")
+                st.write(f"Error Details: {e}")
+                st.info("If this fails, the free servers might be overloaded. Try again in 1 minute.")
 
 else:
     st.warning("⚠️ ACCESS DENIED. PLEASE ENTER TOKEN.")
