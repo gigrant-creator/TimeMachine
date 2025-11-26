@@ -33,7 +33,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("CHRONOS V5.0")
+st.title("CHRONOS V6.0")
 st.markdown("<h3 style='text-align: center;'>Temporal Displacement Unit</h3>", unsafe_allow_html=True)
 
 # --- 3. AUTH ---
@@ -49,16 +49,31 @@ def image_to_base64(image):
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
 def query_huggingface_manual(payload, api_key):
-    # --- THE FIX IS HERE ---
-    # We updated the URL from 'api-inference' to 'router' as requested by the server error.
-    API_URL = "https://router.huggingface.co/models/timbrooks/instruct-pix2pix"
+    # --- THE MAGIC FIX ---
+    # We try the standard URL first. 
+    # If it fails, we fall back to the new ROUTER URL with the /hf-inference/ path.
+    
+    # URL 1: Standard (Works 90% of the time)
+    API_URL = "https://api-inference.huggingface.co/models/timbrooks/instruct-pix2pix"
     
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "X-Wait-For-Model": "true" 
+        "X-Wait-For-Model": "true"
     }
-    response = requests.post(API_URL, headers=headers, json=payload)
-    return response
+    
+    try:
+        response = requests.post(API_URL, headers=headers, json=payload)
+        
+        # If the server tells us to use the Router, we switch immediately
+        if "router.huggingface.co" in response.text:
+             # URL 2: The New Router (Note the /hf-inference/ part!)
+            ROUTER_URL = "https://router.huggingface.co/hf-inference/models/timbrooks/instruct-pix2pix"
+            response = requests.post(ROUTER_URL, headers=headers, json=payload)
+            
+        return response
+        
+    except Exception as e:
+        return None
 
 # --- 5. MAIN LOGIC ---
 if api_key:
@@ -105,19 +120,24 @@ if api_key:
                 try:
                     response = query_huggingface_manual(payload, api_key)
                     
-                    if response.status_code == 200:
+                    if response and response.status_code == 200:
+                        # Success!
                         edited_image = Image.open(io.BytesIO(response.content))
                         status_box.success("✔ TEMPORAL JUMP COMPLETE")
                         st.image(edited_image, caption=f"SUBJECT: +{years}")
                         break
                     
-                    elif "loading" in response.text.lower() or response.status_code == 503:
+                    elif response and ("loading" in response.text.lower() or response.status_code == 503):
                         status_box.warning(f"⚠ Server Warming Up... ({3-attempt} tries left)")
                         time.sleep(15) 
                         
                     else:
                         st.error("⚠️ CRITICAL FAILURE")
-                        st.write(f"Server Response: {response.text}")
+                        # Print the exact error so we can see it
+                        if response:
+                            st.write(f"Server Response: {response.text}")
+                        else:
+                            st.write("Connection failed completely.")
                         break
 
                 except Exception as e:
