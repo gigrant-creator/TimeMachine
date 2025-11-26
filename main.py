@@ -1,8 +1,7 @@
 import streamlit as st
-import requests
-import base64
-import io
+from huggingface_hub import InferenceClient
 from PIL import Image
+import io
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Chronos: Time Machine", page_icon="⌛", layout="centered")
@@ -32,7 +31,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("CHRONOS V12 (FINAL)")
+st.title("CHRONOS V13")
 st.markdown("<h3 style='text-align: center;'>Temporal Displacement Unit</h3>", unsafe_allow_html=True)
 
 # --- 3. AUTH ---
@@ -41,14 +40,11 @@ if "HF_TOKEN" in st.secrets:
 else:
     api_key = st.sidebar.text_input("ENTER ACCESS TOKEN", type="password")
 
-# --- 4. HELPER FUNCTIONS ---
-def image_to_base64(image):
-    buffered = io.BytesIO()
-    image.save(buffered, format="JPEG")
-    return base64.b64encode(buffered.getvalue()).decode('utf-8')
-
-# --- 5. MAIN LOGIC ---
+# --- 4. MAIN LOGIC ---
 if api_key:
+    # We initialize the client WITHOUT a model first to avoid "Multiple Values" bug
+    client = InferenceClient(token=api_key)
+
     st.write("### 1. ACQUIRE BIOMETRIC DATA")
     input_method = st.radio("Select Input Source:", ["Activate Camera", "Upload File"])
 
@@ -77,41 +73,28 @@ if api_key:
         }
 
         if st.button("INITIATE TIME WARP"):
-            with st.spinner("⚡ CONTACTING ROUTER..."):
+            with st.spinner("⚡ CONTACTING AI..."):
                 try:
-                    # --- THE FINAL URL FIX ---
-                    # We removed '/hf-inference/'. The correct path is direct to /models/
-                    API_URL = "https://router.huggingface.co/models/runwayml/stable-diffusion-v1-5"
+                    # Using the standard library method
+                    # This relies on the library to find the right URL
+                    edited_image = client.image_to_image(
+                        image=original_image,
+                        prompt=prompts[years],
+                        model="runwayml/stable-diffusion-v1-5", 
+                        strength=0.5,
+                        guidance_scale=7.5
+                    )
                     
-                    headers = {"Authorization": f"Bearer {api_key}"}
-                    
-                    payload = {
-                        "inputs": prompts[years],
-                        "parameters": {
-                            "image": image_to_base64(original_image), 
-                            "strength": 0.5,
-                            "guidance_scale": 7.5
-                        }
-                    }
-                    
-                    response = requests.post(API_URL, headers=headers, json=payload)
-                    
-                    if response.status_code == 200:
-                        # Success!
-                        edited_image = Image.open(io.BytesIO(response.content))
-                        st.success("✔ TEMPORAL JUMP COMPLETE")
-                        st.image(edited_image, caption=f"SUBJECT: +{years}")
-                    else:
-                        st.error(f"⚠️ SERVER ERROR: {response.status_code}")
-                        st.write("Raw Server Message:")
-                        st.code(response.text)
-                        
-                        if "loading" in response.text.lower():
-                            st.info("💡 Solution: The model is loading. Click the button again in 30 seconds.")
+                    st.success("✔ TEMPORAL JUMP COMPLETE")
+                    st.image(edited_image, caption=f"SUBJECT: +{years}")
 
                 except Exception as e:
-                    st.error("⚠️ SYSTEM CRASH")
-                    st.write(f"Python Error: {e}")
+                    st.error("⚠️ SYSTEM ERROR")
+                    st.write(f"Error Details: {e}")
+                    
+                    error_text = str(e).lower()
+                    if "loading" in error_text or "503" in error_text:
+                         st.info("💡 The AI is waking up. Please wait 30 seconds and click again.")
 
 else:
     st.warning("⚠️ ACCESS DENIED. PLEASE ENTER TOKEN.")
