@@ -2,7 +2,7 @@ import streamlit as st
 from huggingface_hub import InferenceClient
 from PIL import Image
 import io
-import traceback # <--- The X-Ray Tool
+import base64
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Chronos: Time Machine", page_icon="⌛", layout="centered")
@@ -32,7 +32,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("CHRONOS V14 (X-RAY)")
+st.title("CHRONOS V15 (DIRECT)")
 st.markdown("<h3 style='text-align: center;'>Temporal Displacement Unit</h3>", unsafe_allow_html=True)
 
 # --- 3. AUTH ---
@@ -41,10 +41,17 @@ if "HF_TOKEN" in st.secrets:
 else:
     api_key = st.sidebar.text_input("ENTER ACCESS TOKEN", type="password")
 
-# --- 4. MAIN LOGIC ---
+# --- 4. HELPER: IMAGE TO BASE64 ---
+def image_to_base64(image):
+    buffered = io.BytesIO()
+    image.save(buffered, format="JPEG")
+    return base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+# --- 5. MAIN LOGIC ---
 if api_key:
-    # We use the generic client (no model specified yet)
-    client = InferenceClient(token=api_key)
+    # We initialize the client with the specific model we want
+    # We are switching to 'runwayml/stable-diffusion-v1-5' as it is the most reliable
+    client = InferenceClient(model="runwayml/stable-diffusion-v1-5", token=api_key)
 
     st.write("### 1. ACQUIRE BIOMETRIC DATA")
     input_method = st.radio("Select Input Source:", ["Activate Camera", "Upload File"])
@@ -57,7 +64,7 @@ if api_key:
 
     if image_input:
         original_image = Image.open(image_input)
-        original_image = original_image.resize((512, 512)) # Resize to prevent timeout
+        original_image = original_image.resize((512, 512)) # Resize is CRITICAL
         
         st.image(original_image, caption="SUBJECT: PRESENT DAY (512x512)", width=300)
 
@@ -73,26 +80,35 @@ if api_key:
         }
 
         if st.button("INITIATE TIME WARP"):
-            with st.spinner("⚡ WARPING TIME..."):
+            with st.spinner("⚡ BYPASSING CIRCUITRY..."):
                 try:
-                    # Explicitly using the image_to_image function
-                    edited_image = client.image_to_image(
-                        image=original_image,
-                        prompt=prompts[years],
-                        model="runwayml/stable-diffusion-v1-5",
-                        strength=0.5,
-                        guidance_scale=7.5
-                    )
+                    # --- THE FIX: CLIENT.POST ---
+                    # Instead of client.image_to_image (which crashes), we use client.post
+                    # We manually build the data packet the server expects.
+                    
+                    payload = {
+                        "inputs": prompts[years],
+                        "parameters": {
+                            "image": image_to_base64(original_image), # Send image as Base64 text
+                            "strength": 0.5,
+                            "guidance_scale": 7.5
+                        }
+                    }
+                    
+                    # This sends the data directly to the URL the library determines is correct
+                    response_bytes = client.post(json=payload)
+                    
+                    # Convert the raw answer back to an image
+                    edited_image = Image.open(io.BytesIO(response_bytes))
                     
                     st.success("✔ TEMPORAL JUMP COMPLETE")
                     st.image(edited_image, caption=f"SUBJECT: +{years}")
 
-                except Exception:
-                    # --- X-RAY VISION ---
-                    st.error("⚠️ SYSTEM CRASH DETECTED")
-                    st.write("Here is the exact technical error:")
-                    # This prints the FULL ugly error message so we know exactly what is wrong
-                    st.code(traceback.format_exc())
+                except Exception as e:
+                    st.error("⚠️ SYSTEM ERROR")
+                    st.write(f"Details: {e}")
+                    if "loading" in str(e).lower():
+                        st.info("💡 The model is loading! Wait 30 seconds and click again.")
 
 else:
     st.warning("⚠️ ACCESS DENIED. PLEASE ENTER TOKEN.")
