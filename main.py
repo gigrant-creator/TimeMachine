@@ -32,7 +32,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("CHRONOS V11 (ROUTER)")
+st.title("CHRONOS V12 (FINAL)")
 st.markdown("<h3 style='text-align: center;'>Temporal Displacement Unit</h3>", unsafe_allow_html=True)
 
 # --- 3. AUTH ---
@@ -59,9 +59,9 @@ if api_key:
         image_input = st.file_uploader("Upload Image Data", type=["jpg", "png", "jpeg"])
 
     if image_input:
-        # Load and Resize (CRITICAL for free tier)
+        # Load and Resize (CRITICAL)
         original_image = Image.open(image_input)
-        original_image = original_image.resize((512, 512)) # Force small size
+        original_image = original_image.resize((512, 512)) 
         
         st.image(original_image, caption="SUBJECT: PRESENT DAY (512x512)", width=300)
 
@@ -79,9 +79,9 @@ if api_key:
         if st.button("INITIATE TIME WARP"):
             with st.spinner("⚡ CONTACTING ROUTER..."):
                 try:
-                    # --- THE FIX: NEW ROUTER URL ---
-                    # We updated this line to use the new 'router' domain
-                    API_URL = "https://router.huggingface.co/hf-inference/models/runwayml/stable-diffusion-v1-5"
+                    # --- THE FINAL URL FIX ---
+                    # We removed '/hf-inference/'. The correct path is direct to /models/
+                    API_URL = "https://router.huggingface.co/models/runwayml/stable-diffusion-v1-5"
                     
                     headers = {"Authorization": f"Bearer {api_key}"}
                     
