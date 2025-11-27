@@ -1,8 +1,9 @@
 import streamlit as st
-from huggingface_hub import InferenceClient
+import requests
 from PIL import Image
 import io
 import base64
+import time
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Chronos: Time Machine", page_icon="⌛", layout="centered")
@@ -32,7 +33,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("CHRONOS V15 (DIRECT)")
+st.title("CHRONOS V16 (MANUAL)")
 st.markdown("<h3 style='text-align: center;'>Temporal Displacement Unit</h3>", unsafe_allow_html=True)
 
 # --- 3. AUTH ---
@@ -49,10 +50,6 @@ def image_to_base64(image):
 
 # --- 5. MAIN LOGIC ---
 if api_key:
-    # We initialize the client with the specific model we want
-    # We are switching to 'runwayml/stable-diffusion-v1-5' as it is the most reliable
-    client = InferenceClient(model="runwayml/stable-diffusion-v1-5", token=api_key)
-
     st.write("### 1. ACQUIRE BIOMETRIC DATA")
     input_method = st.radio("Select Input Source:", ["Activate Camera", "Upload File"])
 
@@ -64,7 +61,7 @@ if api_key:
 
     if image_input:
         original_image = Image.open(image_input)
-        original_image = original_image.resize((512, 512)) # Resize is CRITICAL
+        original_image = original_image.resize((512, 512)) # CRITICAL RESIZE
         
         st.image(original_image, caption="SUBJECT: PRESENT DAY (512x512)", width=300)
 
@@ -80,35 +77,45 @@ if api_key:
         }
 
         if st.button("INITIATE TIME WARP"):
-            with st.spinner("⚡ BYPASSING CIRCUITRY..."):
+            with st.spinner("⚡ CONTACTING SERVER..."):
                 try:
-                    # --- THE FIX: CLIENT.POST ---
-                    # Instead of client.image_to_image (which crashes), we use client.post
-                    # We manually build the data packet the server expects.
+                    # --- THE FIX: MANUAL REQUESTS ---
+                    # We do not use the 'InferenceClient' object. We use raw internet requests.
+                    API_URL = "https://router.huggingface.co/models/runwayml/stable-diffusion-v1-5"
+                    headers = {"Authorization": f"Bearer {api_key}"}
                     
                     payload = {
                         "inputs": prompts[years],
                         "parameters": {
-                            "image": image_to_base64(original_image), # Send image as Base64 text
+                            "image": image_to_base64(original_image), 
                             "strength": 0.5,
                             "guidance_scale": 7.5
                         }
                     }
                     
-                    # This sends the data directly to the URL the library determines is correct
-                    response_bytes = client.post(json=payload)
-                    
-                    # Convert the raw answer back to an image
-                    edited_image = Image.open(io.BytesIO(response_bytes))
-                    
-                    st.success("✔ TEMPORAL JUMP COMPLETE")
-                    st.image(edited_image, caption=f"SUBJECT: +{years}")
+                    # RETRY LOOP: If server is busy, wait and try again
+                    for attempt in range(3):
+                        response = requests.post(API_URL, headers=headers, json=payload)
+                        
+                        if response.status_code == 200:
+                            # Success!
+                            edited_image = Image.open(io.BytesIO(response.content))
+                            st.success("✔ TEMPORAL JUMP COMPLETE")
+                            st.image(edited_image, caption=f"SUBJECT: +{years}")
+                            break # Exit the loop
+                        
+                        elif "loading" in response.text.lower() or response.status_code == 503:
+                            st.warning(f"⚠ Server Warming Up... (Attempt {attempt+1}/3)")
+                            time.sleep(10) # Wait 10 seconds
+                        
+                        else:
+                            st.error(f"⚠️ SERVER ERROR: {response.status_code}")
+                            st.code(response.text)
+                            break # Stop trying if it's a real error
 
                 except Exception as e:
                     st.error("⚠️ SYSTEM ERROR")
                     st.write(f"Details: {e}")
-                    if "loading" in str(e).lower():
-                        st.info("💡 The model is loading! Wait 30 seconds and click again.")
 
 else:
     st.warning("⚠️ ACCESS DENIED. PLEASE ENTER TOKEN.")
